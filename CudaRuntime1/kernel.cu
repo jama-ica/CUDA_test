@@ -21,9 +21,9 @@ __global__ void containsAllSymbolsKernel(const char* reel1, const char* reel2, c
 {
 	__int64 index = (__int64)blockIdx.x * (__int64)blockDim.x + (__int64)threadIdx.x;
 
-	int reel_pos[REEL_COUNT] = {};
+	char reel_pos[REEL_COUNT] = {};
 
-	// reel 5 pos
+	// calc reel pos
 	__int64 origin = index;
 	__int64 shifted = origin >> 7;
 	reel_pos[4] = origin - (shifted << 7);
@@ -42,13 +42,14 @@ __global__ void containsAllSymbolsKernel(const char* reel1, const char* reel2, c
 
 	reel_pos[0] = shifted;
 
-	char symbol_flg[SYMBOL_KIND] = {};
-	int symbol = 0;
-	for(int i = 0 ; i < REEL_COUNT; i++)
-	{ 
-		for (int j = 0 ; j < WINDOW_SIZE; j++)
+	// check symbols
+	bool symbol_flg[SYMBOL_KIND] = {false};
+	char symbol = 0;
+	for(char r = 0 ; r < REEL_COUNT; r++)
+	{
+		for (char w = 0 ; w < WINDOW_SIZE; w++)
 		{
-			int pos = reel_pos[i] - 1 + j;
+			char pos = reel_pos[r] - 1 + w;
 			if (0 > pos) {
 				pos += REEL_LEN;
 			}
@@ -56,7 +57,7 @@ __global__ void containsAllSymbolsKernel(const char* reel1, const char* reel2, c
 				pos -= REEL_LEN;
 			}
 
-			switch (i)
+			switch (r)
 			{
 			case 0:	symbol = reel1[pos]; break;
 			case 1:	symbol = reel2[pos]; break;
@@ -64,62 +65,70 @@ __global__ void containsAllSymbolsKernel(const char* reel1, const char* reel2, c
 			case 3:	symbol = reel4[pos]; break;
 			case 4:	symbol = reel5[pos]; break;
 			}
-			symbol_flg[symbol] = 1;
+
+			if (r == 1 && symbol_flg[symbol])
+			{
+				return; // 当選は除外
+			}
+
+			symbol_flg[symbol] = true;
 		}
 	}
 
-	bool full_symbol = true;
+	bool containsAllSymbols = true;
 	for (int i = 0; i < SYMBOL_KIND; i++)
 	{
-		if (symbol_flg[i] == 0)
+		if (!symbol_flg[i])
 		{
-			full_symbol = false;
+			containsAllSymbols = false;
 			break;
 		}
 	}
-	if(full_symbol)
+	if(containsAllSymbols)
 	{
+		// set reel pos to result
 		int res_i = index % RESULT_SIZE;
-		for (int i = 0; i < REEL_COUNT; i++)
+		for (char i = 0; i < REEL_COUNT; i++)
 		{
-			result[res_i* REEL_COUNT+i] = reel_pos[i];
+			result[res_i* REEL_COUNT + i] = reel_pos[i];
 		}
 	}
 }
 
 int main()
 {
-	char Reel[REEL_COUNT][REEL_LEN] = {{}};
-	for (int i = 0; i < REEL_COUNT; i++)
+	printf("Start\n");
+
+	char Reels[REEL_COUNT][REEL_LEN] = {{}};
+	for (int r = 0; r < REEL_COUNT; r++)
 	{ 
-		for (int j = 0; j < REEL_LEN; j++)
+		for (int w = 0; w < REEL_LEN; w++)
 		{
-			Reel[i][j] = rand() % SYMBOL_KIND;
+			Reels[r][w] = rand() % SYMBOL_KIND;
 		}
 	}
 
 	char Result[RESULT_SIZE * REEL_COUNT] = {-1};
 
-	printf("Start\n");
-
 	// Add vectors in parallel.
-	cudaError_t cudaStatus = containsAllSymbolsWithCuda(Reel, Result);
+	cudaError_t cudaStatus = containsAllSymbolsWithCuda(Reels, Result);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "containsAllSymbolsWithCuda failed!");
 		return 1;
 	}
 
-	for ( int i = 0 ; i < RESULT_SIZE * REEL_COUNT ; i += REEL_COUNT )
+	for ( int i = 0 ; i < RESULT_SIZE ; i++ )
 	{
-		bool isEmpty = (Result[i] == -1);
+		int index = i * REEL_COUNT;
+		bool isEmpty = (Result[index] == -1);
 		if (isEmpty)
 		{
 			continue;
 		}
-		printf("%d: {", i/ REEL_COUNT);
+		printf("%d: {", i);
 		for (int j = 0 ; j < REEL_COUNT ; j++)
 		{
-			printf("%d,", Result[i+j]);
+			printf("%d,", Result[index + j]);
 		}
 		printf("} \n");
 
@@ -128,16 +137,15 @@ int main()
 			printf("[");
 			for (int r = 0; r < REEL_COUNT; r++)
 			{ 
-				int pos = Result[i + r] - 1 + w;
+				int pos = Result[index + r] - 1 + w;
 				if (0 > pos) {
 					pos += REEL_LEN;
 				}
 				else if (pos >= REEL_LEN) {
 					pos -= REEL_LEN;
 				}
-				int symbol = Reel[r][pos];
+				int symbol = Reels[r][pos];
 				printf("%d,", symbol);
-
 			}
 			printf("]\n");
 		}
