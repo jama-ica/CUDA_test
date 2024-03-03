@@ -108,8 +108,17 @@ int main()
 			Reels[r][w] = rand() % SYMBOL_KIND;
 		}
 	}
+	//Reels[0][10] = 1; Reels[0][11] = 2; Reels[0][12] = 3;
+	//Reels[1][127] = 4; Reels[1][0] = 5; Reels[1][1] = 6;
+	//Reels[2][10] = 7; Reels[2][11] = 8; Reels[2][12] = 9;
+	//Reels[3][0] = 10; Reels[3][1] = 11; Reels[3][2] = 12;
+	//Reels[4][124] = 13; Reels[4][125] = 14; Reels[4][126] = 0;
 
-	char Result[RESULT_SIZE * REEL_COUNT] = {-1};
+	char Result[RESULT_SIZE * REEL_COUNT];
+	for (int i = 0; i < _countof(Result); i++)
+	{
+		Result[i] = -1;
+	}
 
 	// CUDA
 	cudaError_t cudaStatus = containsAllSymbolsWithCuda(Reels, Result);
