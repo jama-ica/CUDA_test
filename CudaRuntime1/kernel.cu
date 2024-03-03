@@ -15,7 +15,7 @@ static const unsigned char SYMBOL_KIND = 15;
 
 static const int RESULT_SIZE = 10000;
 
-cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], unsigned char reel_len, unsigned char window_size, char* result, unsigned int result_size);
+cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], char* result);
 
 __global__ void containsAllSymbolsKernel(const char* reel1, const char* reel2, const char* reel3, const char* reel4, const char* reel5, char* result)
 {
@@ -98,12 +98,12 @@ int main()
 		}
 	}
 
-	char Result[RESULT_SIZE * REEL_COUNT] = {};
+	char Result[RESULT_SIZE * REEL_COUNT] = {-1};
 
 	printf("Start\n");
 
 	// Add vectors in parallel.
-	cudaError_t cudaStatus = containsAllSymbolsWithCuda(Reel, REEL_LEN, WINDOW_SIZE, Result, RESULT_SIZE);
+	cudaError_t cudaStatus = containsAllSymbolsWithCuda(Reel, Result);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "containsAllSymbolsWithCuda failed!");
 		return 1;
@@ -111,42 +111,35 @@ int main()
 
 	for ( int i = 0 ; i < RESULT_SIZE * REEL_COUNT ; i += REEL_COUNT )
 	{
-		bool isEmpty = true;
+		bool isEmpty = (Result[i] == -1);
+		if (isEmpty)
+		{
+			continue;
+		}
+		printf("%d: {", i/ REEL_COUNT);
 		for (int j = 0 ; j < REEL_COUNT ; j++)
 		{
-			if (0 != Result[i+j])
-			{
-				isEmpty = false;
-				break;
-			}
+			printf("%d,", Result[i+j]);
 		}
-		if (!isEmpty)
+		printf("} \n");
+
+		for (int w = 0; w < WINDOW_SIZE; w++)
 		{
-			printf("%d: {", i/ REEL_COUNT);
-			for (int j = 0 ; j < REEL_COUNT ; j++)
-			{
-				printf("%d,", Result[i+j]);
-			}
-			printf("} \n");
-
-			for (int w = 0; w < WINDOW_SIZE; w++)
-			{
-				printf("[");
-				for (int r = 0; r < REEL_COUNT; r++)
-				{ 
-					int pos = Result[i + r] - 1 + w;
-					if (0 > pos) {
-						pos += REEL_LEN;
-					}
-					else if (pos >= REEL_LEN) {
-						pos -= REEL_LEN;
-					}
-					int symbol = Reel[r][pos];
-					printf("%d,", symbol);
-
+			printf("[");
+			for (int r = 0; r < REEL_COUNT; r++)
+			{ 
+				int pos = Result[i + r] - 1 + w;
+				if (0 > pos) {
+					pos += REEL_LEN;
 				}
-				printf("]\n");
+				else if (pos >= REEL_LEN) {
+					pos -= REEL_LEN;
+				}
+				int symbol = Reel[r][pos];
+				printf("%d,", symbol);
+
 			}
+			printf("]\n");
 		}
 	}
 
@@ -162,9 +155,9 @@ int main()
 	return 0;
 }
 
-cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], unsigned char reel_len, unsigned char window_size, char* result, unsigned int result_size)
+cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], char* result)
 {
-	printf("%s: Start\n", __FUNCDNAME__);
+	printf("%s: Start\n", __FUNCTION__);
 
 	cudaError_t cudaStatus;
 
@@ -180,7 +173,7 @@ cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], un
 	// Allocate GPU buffers for three vectors (two input, one output)
 	for(int i = 0 ; i < REEL_COUNT ; i++)
 	{
-		cudaStatus = cudaMalloc((void**)&(dev_reels[i]), reel_len * sizeof(char));
+		cudaStatus = cudaMalloc((void**)&(dev_reels[i]), REEL_LEN * sizeof(char));
 		if (cudaStatus != cudaSuccess) {
 			fprintf(stderr, "cudaMalloc failed!");
 			goto Error;
@@ -189,7 +182,7 @@ cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], un
 
 	char* dev_result = 0;
 
-	cudaStatus = cudaMalloc((void**)&dev_result, result_size * REEL_COUNT * sizeof(char));
+	cudaStatus = cudaMalloc((void**)&dev_result, RESULT_SIZE * REEL_COUNT * sizeof(char));
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMalloc failed!");
 		goto Error;
@@ -198,14 +191,14 @@ cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], un
 	// Copy input vectors from host memory to GPU buffers.
 	for (int i = 0; i < REEL_COUNT; i++)
 	{
-		cudaStatus = cudaMemcpy(dev_reels[i], reel[i], reel_len * sizeof(char), cudaMemcpyHostToDevice);
+		cudaStatus = cudaMemcpy(dev_reels[i], reel[i], REEL_LEN * sizeof(char), cudaMemcpyHostToDevice);
 		if (cudaStatus != cudaSuccess) {
 			fprintf(stderr, "cudaMemcpy failed!");
 			goto Error;
 		}
 	}
 
-	cudaStatus = cudaMemcpy(dev_result, result, result_size * REEL_COUNT * sizeof(char), cudaMemcpyHostToDevice);
+	cudaStatus = cudaMemcpy(dev_result, result, RESULT_SIZE * REEL_COUNT * sizeof(char), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed!");
 		goto Error;
@@ -243,7 +236,7 @@ cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], un
 	}
 
 	// Copy output vector from GPU buffer to host memory.
-	cudaStatus = cudaMemcpy(result, dev_result, result_size * REEL_COUNT * sizeof(char), cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(result, dev_result, RESULT_SIZE * REEL_COUNT * sizeof(char), cudaMemcpyDeviceToHost);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaMemcpy failed!");
 		goto Error;
@@ -256,7 +249,7 @@ Error:
 	}
 	cudaFree(dev_result);
 
-	printf("%s: Ebd\n", __FUNCDNAME__);
+	printf("%s: Ebd\n", __FUNCTION__);
 	return cudaStatus;
 }
 
