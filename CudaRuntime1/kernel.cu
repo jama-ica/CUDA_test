@@ -3,6 +3,7 @@
 #include "device_launch_parameters.h"
 
 #include <stdio.h>
+#include <iostream>
 #include <cstdlib>	  // srand,rand
 #include <cmath>
 #include <bitset>
@@ -86,7 +87,7 @@ __global__ void containsAllSymbolsKernel(const char* reel1, const char* reel2, c
 	}
 	if(containsAllSymbols)
 	{
-		// set reel pos to result
+		// record reel pos to result
 		int res_i = index % RESULT_SIZE;
 		for (char i = 0; i < REEL_COUNT; i++)
 		{
@@ -110,13 +111,14 @@ int main()
 
 	char Result[RESULT_SIZE * REEL_COUNT] = {-1};
 
-	// Add vectors in parallel.
+	// CUDA
 	cudaError_t cudaStatus = containsAllSymbolsWithCuda(Reels, Result);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "containsAllSymbolsWithCuda failed!");
 		return 1;
 	}
 
+	// Show results
 	for ( int i = 0 ; i < RESULT_SIZE ; i++ )
 	{
 		int index = i * REEL_COUNT;
@@ -125,13 +127,16 @@ int main()
 		{
 			continue;
 		}
+
+		// Show stop Pos
 		printf("%d: {", i);
-		for (int j = 0 ; j < REEL_COUNT ; j++)
+		for (int r = 0 ; r < REEL_COUNT ; r++)
 		{
-			printf("%d,", Result[index + j]);
+			printf("%d,", Result[index + r]);
 		}
 		printf("} \n");
 
+		// Show symbols
 		for (int w = 0; w < WINDOW_SIZE; w++)
 		{
 			printf("[");
@@ -144,7 +149,7 @@ int main()
 				else if (pos >= REEL_LEN) {
 					pos -= REEL_LEN;
 				}
-				int symbol = Reels[r][pos];
+				char symbol = Reels[r][pos];
 				printf("%d,", symbol);
 			}
 			printf("]\n");
@@ -213,19 +218,17 @@ cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], ch
 	}
 
 
-	// N = 128^5 = 34359738368
-	// 34359738368/1024 = 33554432
-	// 
-	// MAX blockPerGrid = 2147483647
-	// Max Threads = 1024*2147483647 = 2199023254528
-	__int64 N = std::pow(REEL_LEN, REEL_COUNT);
+	// TASK = 128^5 = 34359738368
+	__int64 TASK = std::pow(REEL_LEN, REEL_COUNT);
 
 	__int64 threadsPerBlock = 1024;
-	__int64 blocksPerGrid = N / threadsPerBlock; //33554432;
+
+	// 34359738368/1024 = 33554432
+	__int64 blocksPerGrid = TASK / threadsPerBlock;
 
 	// Launch a kernel on the GPU with one thread for each element.
-	printf("containsAllSymbolsKernel: Start N=%d, threadsPerBlock=%d, blocksPerGrid=%d\n", N, threadsPerBlock, blocksPerGrid);
-	containsAllSymbolsKernel <<<blocksPerGrid, threadsPerBlock >>> (dev_reels[0], dev_reels[1], dev_reels[2], dev_reels[3], dev_reels[4], dev_result);
+	printf("containsAllSymbolsKernel: Start Threads=%d, threadsPerBlock=%d, blocksPerGrid=%d\n", TASK, threadsPerBlock, blocksPerGrid);
+	containsAllSymbolsKernel <<<blocksPerGrid, threadsPerBlock>>> (dev_reels[0], dev_reels[1], dev_reels[2], dev_reels[3], dev_reels[4], dev_result);
 	printf("containsAllSymbolsKernel: End\n");
 
 	// Check for any errors launching the kernel
