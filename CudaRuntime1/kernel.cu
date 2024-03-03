@@ -15,10 +15,9 @@ static const unsigned char SYMBOL_KIND = 15;
 
 static const int RESULT_SIZE = 10000;
 
-cudaError_t checkFullSymbolWithCuda(const char* reel1, const char* reel2, const char* reel3, const char* reel4, const char* reel5, unsigned char reel_len, unsigned char window_size, char* result, unsigned int result_size);
+cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], unsigned char reel_len, unsigned char window_size, char* result, unsigned int result_size);
 
-
-__global__ void checkFullSymbolKernel(const char* reel1, const char* reel2, const char* reel3, const char* reel4, const char* reel5, unsigned char reel_len, unsigned char window_size, char* result, unsigned int result_size)
+__global__ void containsAllSymbolsKernel(const char* reel1, const char* reel2, const char* reel3, const char* reel4, const char* reel5, char* result)
 {
 	__int64 index = (__int64)blockIdx.x * (__int64)blockDim.x + (__int64)threadIdx.x;
 
@@ -90,18 +89,13 @@ __global__ void checkFullSymbolKernel(const char* reel1, const char* reel2, cons
 
 int main()
 {
-	char Reel1[REEL_LEN] = {};
-	char Reel2[REEL_LEN] = {};
-	char Reel3[REEL_LEN] = {};
-	char Reel4[REEL_LEN] = {};
-	char Reel5[REEL_LEN] = {};
-	for (int i = 0; i < REEL_LEN; i++)
-	{
-		Reel1[i] = rand() % SYMBOL_KIND;
-		Reel2[i] = rand() % SYMBOL_KIND;
-		Reel3[i] = rand() % SYMBOL_KIND;
-		Reel4[i] = rand() % SYMBOL_KIND;
-		Reel5[i] = rand() % SYMBOL_KIND;
+	char Reel[REEL_COUNT][REEL_LEN] = {{}};
+	for (int i = 0; i < REEL_COUNT; i++)
+	{ 
+		for (int j = 0; j < REEL_LEN; j++)
+		{
+			Reel[i][j] = rand() % SYMBOL_KIND;
+		}
 	}
 
 	char Result[RESULT_SIZE * REEL_COUNT] = {};
@@ -109,9 +103,9 @@ int main()
 	printf("Start\n");
 
 	// Add vectors in parallel.
-	cudaError_t cudaStatus = checkFullSymbolWithCuda(Reel1, Reel2, Reel3, Reel4, Reel5, REEL_LEN, WINDOW_SIZE, Result, RESULT_SIZE);
+	cudaError_t cudaStatus = containsAllSymbolsWithCuda(Reel, REEL_LEN, WINDOW_SIZE, Result, RESULT_SIZE);
 	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "checkFullSymbolWithCuda failed!");
+		fprintf(stderr, "containsAllSymbolsWithCuda failed!");
 		return 1;
 	}
 
@@ -147,15 +141,7 @@ int main()
 					else if (pos >= REEL_LEN) {
 						pos -= REEL_LEN;
 					}
-					int symbol = 0;
-					switch (r)
-					{
-					case 0:	symbol = Reel1[pos]; break;
-					case 1:	symbol = Reel2[pos]; break;
-					case 2:	symbol = Reel3[pos]; break;
-					case 3:	symbol = Reel4[pos]; break;
-					case 4:	symbol = Reel5[pos]; break;
-					}
+					int symbol = Reel[r][pos];
 					printf("%d,", symbol);
 
 				}
@@ -176,9 +162,9 @@ int main()
 	return 0;
 }
 
-cudaError_t checkFullSymbolWithCuda(const char* reel1, const char* reel2, const char* reel3, const char* reel4, const char* reel5, unsigned char reel_len, unsigned char window_size, char* result, unsigned int result_size)
+cudaError_t containsAllSymbolsWithCuda(const char reel[REEL_COUNT][REEL_LEN], unsigned char reel_len, unsigned char window_size, char* result, unsigned int result_size)
 {
-	printf("checkFullSymbolWithCuda: Start\n");
+	printf("%s: Start\n", __FUNCDNAME__);
 
 	cudaError_t cudaStatus;
 
@@ -189,37 +175,16 @@ cudaError_t checkFullSymbolWithCuda(const char* reel1, const char* reel2, const 
 		goto Error;
 	}
 
-	char* dev_reel1 = 0;
-	char* dev_reel2 = 0;
-	char* dev_reel3 = 0;
-	char* dev_reel4 = 0;
-	char* dev_reel5 = 0;
+	char* dev_reels[REEL_COUNT] = {};
 
-	// Allocate GPU buffers for three vectors (two input, one output)	.
-	cudaStatus = cudaMalloc((void**)&dev_reel1, reel_len * sizeof(char));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMalloc((void**)&dev_reel2, reel_len * sizeof(char));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMalloc((void**)&dev_reel3, reel_len * sizeof(char));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMalloc((void**)&dev_reel4, reel_len * sizeof(char));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMalloc((void**)&dev_reel5, reel_len * sizeof(char));
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMalloc failed!");
-		goto Error;
+	// Allocate GPU buffers for three vectors (two input, one output)
+	for(int i = 0 ; i < REEL_COUNT ; i++)
+	{
+		cudaStatus = cudaMalloc((void**)&(dev_reels[i]), reel_len * sizeof(char));
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMalloc failed!");
+			goto Error;
+		}
 	}
 
 	char* dev_result = 0;
@@ -231,30 +196,13 @@ cudaError_t checkFullSymbolWithCuda(const char* reel1, const char* reel2, const 
 	}
 
 	// Copy input vectors from host memory to GPU buffers.
-	cudaStatus = cudaMemcpy(dev_reel1, reel1, reel_len * sizeof(char), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMemcpy(dev_reel2, reel2, reel_len * sizeof(char), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMemcpy(dev_reel3, reel3, reel_len * sizeof(char), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMemcpy(dev_reel4, reel4, reel_len * sizeof(char), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed!");
-		goto Error;
-	}
-	cudaStatus = cudaMemcpy(dev_reel5, reel5, reel_len * sizeof(char), cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
-		fprintf(stderr, "cudaMemcpy failed!");
-		goto Error;
+	for (int i = 0; i < REEL_COUNT; i++)
+	{
+		cudaStatus = cudaMemcpy(dev_reels[i], reel[i], reel_len * sizeof(char), cudaMemcpyHostToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "cudaMemcpy failed!");
+			goto Error;
+		}
 	}
 
 	cudaStatus = cudaMemcpy(dev_result, result, result_size * REEL_COUNT * sizeof(char), cudaMemcpyHostToDevice);
@@ -275,9 +223,9 @@ cudaError_t checkFullSymbolWithCuda(const char* reel1, const char* reel2, const 
 	__int64 blocksPerGrid = N / threadsPerBlock; //33554432;
 
 	// Launch a kernel on the GPU with one thread for each element.
-	printf("checkFullSymbolKernel: Start N=%d, threadsPerBlock=%d, blocksPerGrid=%d\n", N, threadsPerBlock, blocksPerGrid);
-	checkFullSymbolKernel <<<blocksPerGrid, threadsPerBlock >>> (dev_reel1, dev_reel2, dev_reel3, dev_reel4, dev_reel5, REEL_LEN, WINDOW_SIZE, dev_result, RESULT_SIZE);
-	printf("checkFullSymbolKernel: End\n");
+	printf("containsAllSymbolsKernel: Start N=%d, threadsPerBlock=%d, blocksPerGrid=%d\n", N, threadsPerBlock, blocksPerGrid);
+	containsAllSymbolsKernel <<<blocksPerGrid, threadsPerBlock >>> (dev_reels[0], dev_reels[1], dev_reels[2], dev_reels[3], dev_reels[4], dev_result);
+	printf("containsAllSymbolsKernel: End\n");
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -302,14 +250,13 @@ cudaError_t checkFullSymbolWithCuda(const char* reel1, const char* reel2, const 
 	}
 
 Error:
-	cudaFree(dev_reel1);
-	cudaFree(dev_reel2);
-	cudaFree(dev_reel3);
-	cudaFree(dev_reel4);
-	cudaFree(dev_reel5);
+	for (int i = 0; i < REEL_COUNT; i++)
+	{
+		cudaFree(dev_reels[i]);
+	}
 	cudaFree(dev_result);
 
-	printf("checkFullSymbolWithCuda: End\n");
+	printf("%s: Ebd\n", __FUNCDNAME__);
 	return cudaStatus;
 }
 
